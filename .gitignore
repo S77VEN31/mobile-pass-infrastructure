@@ -1,0 +1,23 @@
+# Certificados SSL (no subir al repositorio)
+certificates/
+
+# Logs de Nginx
+logs/
+*.log
+
+# Variables de entorno
+.env
+.env.local
+.env.production
+
+# Docker
+.dockerignore
+
+# Backups
+*.backup
+*.bak
+
+# OS
+.DS_Store
+Thumbs.db
+

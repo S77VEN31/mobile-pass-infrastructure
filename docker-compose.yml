@@ -1,0 +1,35 @@
+services:
+  # Nginx Reverse Proxy para Pass Generator
+  nginx:
+    image: nginx:alpine
+    container_name: pass-generator-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./conf.d:/etc/nginx/conf.d:ro
+      - ./certificates/wallet.itass.cloud/fullchain.pem:/etc/ssl/wallet/fullchain.pem:ro
+      - ./certificates/wallet.itass.cloud/privkey.pem:/etc/ssl/wallet/privkey.pem:ro
+      - ./certificates/api.itass.cloud/certificate.crt:/etc/ssl/api/certificate.crt:ro
+      - ./certificates/api.itass.cloud/private.key:/etc/ssl/api/private.key:ro
+      - nginx-cache:/var/cache/nginx
+    network_mode: host
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://127.0.0.1:80/health",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+volumes:
+  nginx-cache:
