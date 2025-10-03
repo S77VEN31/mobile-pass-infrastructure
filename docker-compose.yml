@@ -1,4 +1,62 @@
 services:
+  # Frontend - Next.js
+  frontend:
+    build: ../mobile-pass-frontend
+    container_name: pass-generator-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=https://api.itass.cloud
+    networks:
+      - pass-generator-network
+
+  # Backend - Express.js
+  backend:
+    build: ../mobile-pass-backend
+    container_name: pass-generator-backend
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - FRONTEND_URL=https://wallet.itass.cloud
+      - DB_SERVER=sqlserver
+      - DB_PORT=1433
+      - DB_NAME=passgenerator
+      - DB_USER=sa
+      - DB_PASSWORD=YourStrong@Passw0rd
+      - DB_ENCRYPT=false
+      - DB_TRUST_SERVER_CERTIFICATE=true
+      - JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
+      - JWT_EXPIRES_IN=24h
+      - JWT_REFRESH_EXPIRES_IN=7d
+      - CORS_ORIGIN=https://wallet.itass.cloud
+    volumes:
+      - ../mobile-pass-backend/certs:/app/certs:ro
+    networks:
+      - pass-generator-network
+    depends_on:
+      - sqlserver
+
+  # SQL Server Database
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: pass-generator-db
+    environment:
+      ACCEPT_EULA: Y
+      SA_PASSWORD: YourStrong@Passw0rd
+      MSSQL_PID: Express
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+    networks:
+      - pass-generator-network
+    restart: unless-stopped
+
   # Nginx Reverse Proxy para Pass Generator
   nginx:
     image: nginx:alpine
@@ -15,7 +73,12 @@ services:
       - ./certificates/api.itass.cloud/certificate.crt:/etc/ssl/api/certificate.crt:ro
       - ./certificates/api.itass.cloud/private.key:/etc/ssl/api/private.key:ro
       - nginx-cache:/var/cache/nginx
-    network_mode: host
+    networks:
+      - pass-generator-network
+    depends_on:
+      - frontend
+      - backend
+      - sqlserver
     healthcheck:
       test:
         [
@@ -33,3 +96,8 @@ services:
 
 volumes:
   nginx-cache:
+  sqlserver_data:
+
+networks:
+  pass-generator-network:
+    driver: bridge
