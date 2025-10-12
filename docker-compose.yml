@@ -21,9 +21,12 @@ services:
     ports:
       - "3000:3000"
     environment:
-      # API Configuration
+      # API Configuration (Cliente - navegador del usuario)
       - NEXT_PUBLIC_API_URL=https://wallet.itass.cloud/api
       - NEXT_PUBLIC_API_TIMEOUT=30000
+      
+      # API Configuration (Servidor - SSR interno)
+      - API_URL=http://pass-generator-api:3001/api
       
       # App Configuration
       - NEXT_PUBLIC_APP_NAME=Pass Generator
@@ -34,52 +37,7 @@ services:
       - NODE_ENV=production
       - NEXT_TELEMETRY_DISABLED=1
     networks:
-      - pass-generator-network
-
-  # Backend - Express.js
-  backend:
-    build: ../mobile-pass-backend
-    container_name: pass-generator-backend
-    restart: unless-stopped
-    ports:
-      - "3001:3001"
-    environment:
-      - NODE_ENV=production
-      - PORT=3001
-      - FRONTEND_URL=https://mobilepass.itass.cloud
-      - DB_SERVER=sqlserver
-      - DB_PORT=1433
-      - DB_NAME=passgenerator
-      - DB_USER=sa
-      - DB_PASSWORD=YourStrong@Passw0rd
-      - DB_ENCRYPT=false
-      - DB_TRUST_SERVER_CERTIFICATE=true
-      - JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
-      - JWT_EXPIRES_IN=24h
-      - JWT_REFRESH_EXPIRES_IN=7d
-      - CORS_ORIGIN=https://mobilepass.itass.cloud
-    volumes:
-      - ../mobile-pass-backend/certs:/app/certs:ro
-    networks:
-      - pass-generator-network
-    depends_on:
-      - sqlserver
-
-  # SQL Server Database
-  sqlserver:
-    image: mcr.microsoft.com/mssql/server:2022-latest
-    container_name: pass-generator-db
-    environment:
-      ACCEPT_EULA: Y
-      SA_PASSWORD: YourStrong@Passw0rd
-      MSSQL_PID: Express
-    ports:
-      - "1433:1433"
-    volumes:
-      - sqlserver_data:/var/opt/mssql
-    networks:
-      - pass-generator-network
-    restart: unless-stopped
+      - backend-network
 
   # Nginx Reverse Proxy para Pass Generator
   nginx:
@@ -87,7 +45,6 @@ services:
     container_name: pass-generator-nginx
     restart: unless-stopped
     ports:
-      - "80:80"
       - "443:443"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
@@ -96,11 +53,9 @@ services:
       - ./certificates/api.itass.cloud/private.key:/etc/ssl/itass/private.key:ro
       - nginx-cache:/var/cache/nginx
     networks:
-      - pass-generator-network
+      - backend-network
     depends_on:
       - frontend
-      - backend
-      - sqlserver
     healthcheck:
       test:
         [
@@ -109,7 +64,8 @@ services:
           "--no-verbose",
           "--tries=1",
           "--spider",
-          "http://127.0.0.1:80/health",
+          "--no-check-certificate",
+          "https://127.0.0.1:443/health",
         ]
       interval: 30s
       timeout: 10s
@@ -118,8 +74,8 @@ services:
 
 volumes:
   nginx-cache:
-  sqlserver_data:
 
 networks:
-  pass-generator-network:
-    driver: bridge
+  backend-network:
+    external: true
+    name: mobile-pass-backend_pass-generator-network

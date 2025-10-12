@@ -1,23 +1,39 @@
 # Pass Generator Infrastructure
 
-Configuración de Nginx como reverse proxy para el proyecto Pass Generator. Esta infraestructura maneja el enrutamiento SSL/TLS para los dominios `wallet.itass.cloud` (frontend) y `api.itass.cloud` (backend).
+Configuración de Nginx como reverse proxy para el proyecto Pass Generator. Esta infraestructura maneja el enrutamiento SSL/TLS para los dominios `mobilepass.itass.cloud` (frontend) y `wallet.itass.cloud` (backend).
+
+## 🏗️ Arquitectura
+
+### Nuevo Esquema con Virtual Server NIS
+```
+Internet → Virtual Server NIS → Servidor Local → Nginx → Servicios
+         (Múltiples dominios)                    (Enrutamiento)
+                                                  ├─→ Frontend (3000)
+                                                  └─→ Backend (3001)
+```
+
+El Virtual Server NIS enruta el tráfico basado en dominio hacia el servidor local, donde Nginx actúa como reverse proxy hacia los servicios internos.
 
 ## 📋 Estructura
 
 ```
 pass-generator-infrastructure/
-├── docker-compose.yml          # Nginx en contenedor
-├── nginx.conf                  # Configuración principal de Nginx
+├── docker-compose.yml               # Orquestación de servicios
+├── nginx.conf                       # Configuración principal de Nginx
 ├── conf.d/
-│   └── pass-generator.conf     # Configuración de virtual hosts
-└── certificates/               # Certificados SSL organizados por dominio
-    ├── wallet.itass.cloud/     # Frontend (Let's Encrypt)
-    │   ├── fullchain.pem
-    │   └── privkey.pem
-    └── api.itass.cloud/        # Backend (SSL Comercial)
-        ├── certificate.crt
-        ├── private.key
-        └── ca_bundle.crt
+│   ├── pass-generator.conf          # Configuración de virtual hosts
+│   ├── common-proxy-headers.conf    # Headers de proxy compartidos (DRY)
+│   ├── common-ssl.conf              # Configuración SSL compartida (DRY)
+│   └── common-security-headers.conf # Headers de seguridad compartidos (DRY)
+├── certificates/                    # Certificados SSL
+│   └── api.itass.cloud/            # Wildcard *.itass.cloud
+│       ├── certificate.crt
+│       └── private.key
+├── verify-nginx-config.sh          # Script de verificación
+├── deploy.sh                       # Script de despliegue
+├── check-status.sh                 # Script de verificación de estado
+├── README.md                       # Este archivo
+└── NGINX-CONFIGURATION.md          # Documentación técnica detallada
 ```
 
 ## 🚀 Servicios
@@ -37,25 +53,26 @@ pass-generator-infrastructure/
 
 | Dominio | Puerto Local | Servicio | Certificado |
 |---------|-------------|----------|-------------|
-| `wallet.itass.cloud` | 3000 | Frontend (Next.js) | Let's Encrypt |
-| `api.itass.cloud` | 3001 | Backend (Express) | SSL Comercial |
+| `mobilepass.itass.cloud` | 3000 | Frontend (Next.js) | Wildcard *.itass.cloud |
+| `wallet.itass.cloud` | 3001 | Backend API (Express) | Wildcard *.itass.cloud |
+
+> **Nota**: Se usa un certificado wildcard `*.itass.cloud` para ambos dominios.
 
 ## 🔐 Certificados SSL
 
-Los certificados están organizados por dominio en `certificates/`:
+Los certificados están organizados en `certificates/api.itass.cloud/`:
 
-### Frontend - wallet.itass.cloud
-Certificados Let's Encrypt para el dominio del frontend:
-- `fullchain.pem` - Cadena completa de certificados
-- `privkey.pem` - Llave privada
-
-### Backend - api.itass.cloud
-Certificados SSL comerciales para el dominio del backend:
+### Certificado Wildcard *.itass.cloud
+Certificado SSL comercial que cubre todos los subdominios:
 - `certificate.crt` - Certificado del servidor
 - `private.key` - Llave privada
-- `ca_bundle.crt` - Bundle de CA intermedio
 
-> **Nota**: Los certificados de Apple Wallet están en el proyecto backend (`pass-generator-backend/certs/`)
+**Dominios cubiertos:**
+- `mobilepass.itass.cloud` (Frontend)
+- `wallet.itass.cloud` (Backend API)
+- Cualquier otro subdominio `*.itass.cloud`
+
+> **Nota**: Los certificados de Apple Wallet PKPass están en el proyecto backend (`mobile-pass-backend/certs/`)
 
 ## 📦 Despliegue
 
@@ -68,20 +85,22 @@ Certificados SSL comerciales para el dominio del backend:
 ### Inicio Rápido
 
 ```bash
-# 1. Verificar que los servicios locales estén corriendo
-# Frontend: localhost:3000
-# Backend: localhost:3001
+# 1. Verificar configuración antes de desplegar
+./verify-nginx-config.sh
 
-# 2. Iniciar Nginx
-docker-compose up -d
+# 2. Desplegar todos los servicios
+./deploy.sh
 
 # 3. Ver logs
 docker-compose logs -f
 
 # 4. Verificar health checks
 curl http://localhost/health
+curl https://mobilepass.itass.cloud/health
 curl https://wallet.itass.cloud/health
-curl https://api.itass.cloud/health
+
+# 5. Verificar estado de los servicios
+./check-status.sh
 ```
 
 ### Comandos Útiles
@@ -109,18 +128,34 @@ docker-compose exec nginx ls -la /etc/ssl/api/
 
 ## 🔧 Configuración
 
+### Configuración Modular (DRY - Don't Repeat Yourself)
+
+La configuración usa archivos comunes para evitar duplicación:
+
+- **`common-proxy-headers.conf`**: Headers de proxy compartidos
+- **`common-ssl.conf`**: Configuración SSL/TLS compartida
+- **`common-security-headers.conf`**: Headers de seguridad compartidos
+
+**Beneficios:**
+- ✅ Sin duplicación de headers
+- ✅ Mantenimiento centralizado
+- ✅ Fácil agregar nuevos dominios
+- ✅ Consistencia en toda la configuración
+
+Ver [`NGINX-CONFIGURATION.md`](./NGINX-CONFIGURATION.md) para documentación técnica detallada.
+
 ### Health Checks
 
 Nginx responde en el endpoint `/health`:
 
 - `http://localhost/health` - Health check general
-- `https://wallet.itass.cloud/health` - Frontend health
-- `https://api.itass.cloud/health` - Backend health
+- `https://mobilepass.itass.cloud/health` - Frontend health
+- `https://wallet.itass.cloud/health` - Backend API health
 
 ### Puertos
 
-- **80**: HTTP (redirige a HTTPS automáticamente)
-- **443**: HTTPS (SSL/TLS)
+- **443**: HTTPS (SSL/TLS) - **Solo puerto seguro habilitado**
+- Puerto 80 deshabilitado por seguridad (Virtual Server NIS maneja la redirección HTTP→HTTPS)
 
 ### Rate Limiting
 
@@ -131,10 +166,11 @@ Configurado para proteger la API:
 ## 🛡️ Seguridad
 
 ### SSL/TLS
+- **Solo HTTPS habilitado (Puerto 443)** - Máxima seguridad
 - Protocolos: TLS 1.2 y 1.3
 - Ciphers fuertes configurados
 - HSTS habilitado (max-age: 2 años)
-- HTTP redirige automáticamente a HTTPS
+- Puerto 80 deshabilitado por política de seguridad
 
 ### Headers de Seguridad
 - `Strict-Transport-Security` - Force HTTPS
@@ -142,10 +178,16 @@ Configurado para proteger la API:
 - `X-Content-Type-Options: nosniff` - Previene MIME sniffing
 
 ### CORS
-Configurado para permitir comunicación entre frontend y backend:
-- Origin: `https://wallet.itass.cloud`
+Configurado en el backend para permitir comunicación desde el frontend:
+- Origin: `https://mobilepass.itass.cloud`
 - Methods: GET, POST, PUT, DELETE, OPTIONS
 - Headers: Content-Type, Authorization
+
+### WebSocket Support
+Soporte completo para WebSocket y Server-Sent Events:
+- Headers `Upgrade` y `Connection` configurados
+- Timeouts largos para conexiones persistentes
+- Compatible con Next.js Hot Module Replacement (HMR)
 
 ## 📊 Monitoreo
 
@@ -175,28 +217,36 @@ docker-compose exec nginx wget --spider http://127.0.0.1:80/health
 ### Actualizar Certificados SSL
 
 ```bash
-# 1. Copiar nuevos certificados a las carpetas correspondientes
-cp nuevo-fullchain.pem certificates/wallet.itass.cloud/fullchain.pem
-cp nuevo-privkey.pem certificates/wallet.itass.cloud/privkey.pem
+# 1. Copiar nuevos certificados
+cp nuevo-certificate.crt certificates/api.itass.cloud/certificate.crt
+cp nuevo-private.key certificates/api.itass.cloud/private.key
 
-# 2. Recargar Nginx sin downtime
+# 2. Verificar certificado
+openssl x509 -in certificates/api.itass.cloud/certificate.crt -text -noout
+
+# 3. Recargar Nginx sin downtime
 docker-compose exec nginx nginx -s reload
 
 # O reiniciar completamente
-docker-compose restart
+docker-compose restart nginx
 ```
 
 ### Actualizar Configuración
 
 ```bash
 # 1. Editar archivos de configuración
-# nginx.conf o conf.d/pass-generator.conf
+# - nginx.conf (configuración principal)
+# - conf.d/pass-generator.conf (routing por dominio)
+# - conf.d/common-*.conf (configuración compartida)
 
-# 2. Verificar sintaxis
-docker-compose exec nginx nginx -t
+# 2. Verificar sintaxis y configuración
+./verify-nginx-config.sh
 
-# 3. Recargar configuración
+# 3. Si todo está OK, recargar
 docker-compose exec nginx nginx -s reload
+
+# O usar el script de despliegue
+./deploy.sh
 ```
 
 ## 🐛 Troubleshooting
@@ -216,12 +266,17 @@ netstat -ano | findstr ":443"
 
 ```bash
 # Verificar que los certificados existan
-dir certificates\wallet.itass.cloud
-dir certificates\api.itass.cloud
+ls -la certificates/api.itass.cloud/
+
+# Verificar certificado es válido
+openssl x509 -in certificates/api.itass.cloud/certificate.crt -text -noout
 
 # Verificar permisos dentro del contenedor
-docker-compose exec nginx ls -la /etc/ssl/wallet/
-docker-compose exec nginx ls -la /etc/ssl/api/
+docker-compose exec nginx ls -la /etc/ssl/itass/
+
+# Verificar que el certificado coincide con la llave privada
+openssl x509 -noout -modulus -in certificates/api.itass.cloud/certificate.crt | openssl md5
+openssl rsa -noout -modulus -in certificates/api.itass.cloud/private.key | openssl md5
 ```
 
 ### Error "502 Bad Gateway"
@@ -252,15 +307,41 @@ docker-compose exec nginx nginx -t
 
 ## 📝 Notas
 
-- Nginx usa `network_mode: host` para acceder a servicios en localhost
-- Los certificados se montan como read-only (`:ro`)
+- Nginx usa red bridge interna de Docker para comunicarse con los servicios
+- Los certificados se montan como read-only (`:ro`) por seguridad
 - El caché de Nginx se almacena en un volumen persistente
 - La configuración soporta HTTP/2 para mejor rendimiento
-- Los certificados de Apple Wallet están en `pass-generator-backend/certs/`
+- Los certificados de Apple Wallet PKPass están en `mobile-pass-backend/certs/`
+- Configuración modular usando `include` para evitar duplicación
+- Compatible con Virtual Server NIS y múltiples dominios
+
+## 🆕 Cambios Recientes (Virtual Server NIS)
+
+### ¿Qué cambió?
+
+**Antes:**
+- Fortinet con IP Virtual haciendo NAT
+- Tráfico directo al servidor local
+
+**Ahora:**
+- Virtual Server NIS enruta múltiples dominios
+- Nginx recibe tráfico y lo distribuye internamente
+
+### Mejoras Implementadas
+
+1. **Configuración Modular**: Sin duplicación de headers ni SSL config
+2. **WebSocket Support**: Para Next.js HMR y aplicaciones real-time
+3. **Security Headers**: Headers de seguridad completos
+4. **Rate Limiting**: Protección contra abuse
+5. **Scripts de Verificación**: `verify-nginx-config.sh` para validar antes de desplegar
+6. **Documentación Técnica**: Ver [`NGINX-CONFIGURATION.md`](./NGINX-CONFIGURATION.md)
 
 ## 🔗 Referencias
 
 - [Nginx Documentation](https://nginx.org/en/docs/)
+- [Nginx Reverse Proxy Guide](https://docs.nginx.com/nginx/admin-guide/web-server/reverse-proxy/)
 - [Docker Compose Networking](https://docs.docker.com/compose/networking/)
 - [SSL/TLS Best Practices](https://wiki.mozilla.org/Security/Server_Side_TLS)
+- [Nginx Rate Limiting](https://www.nginx.com/blog/rate-limiting-nginx/)
+- **[NGINX-CONFIGURATION.md](./NGINX-CONFIGURATION.md)** - Documentación técnica detallada
 
