@@ -1,81 +1,183 @@
+version: "3.8"
+
 services:
+  # SQL Server Database
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: pass-generator-db
+    environment:
+      ACCEPT_EULA: Y
+      SA_PASSWORD: YourStrong@Passw0rd
+      MSSQL_PID: Express
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+    networks:
+      - pass-generator-network
+    restart: unless-stopped
+    healthcheck:
+      test: /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P YourStrong@Passw0rd -Q "SELECT 1"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # Pass Converter Service
+  pass-converter:
+    build:
+      context: ../pass-converter
+      dockerfile: Dockerfile
+    container_name: pass-converter
+    environment:
+      NODE_ENV: production
+      BIND_HOST: 0.0.0.0
+      BIND_PORT: 3002
+    ports:
+      - "3002:3002"
+    volumes:
+      - ./certificates/google/google-service-account.json:/app/google-service-account.json:ro
+    networks:
+      - pass-generator-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3002/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  # Backend API
+  api:
+    build:
+      context: ../mobile-pass-backend
+      dockerfile: Dockerfile
+    container_name: pass-generator-api
+    depends_on:
+      - sqlserver
+      - pass-converter
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      # Database Configuration
+      DB_SERVER: sqlserver
+      DB_PORT: 1433
+      DB_NAME: passgenerator
+      DB_USER: sa
+      DB_PASSWORD: YourStrong@Passw0rd
+      DB_ENCRYPT: "false"
+      DB_TRUST_SERVER_CERTIFICATE: "true"
+      # JWT Configuration
+      JWT_SECRET: your-super-secret-jwt-key-change-this-in-production
+      JWT_EXPIRES_IN: 24h
+      JWT_REFRESH_EXPIRES_IN: 7d
+      # CORS Configuration
+      CORS_ORIGIN: https://mobilepass.itass.cloud
+      # Google Wallet Configuration
+      GOOGLE_SERVICE_ACCOUNT_PATH: /app/certs/google-service-account.json
+      GOOGLE_ISSUER_ID: 3388000000022345678
+      GOOGLE_STORAGE_BUCKET: ""
+      IMAGE_HOST_URL: https://wallet.itass.cloud/api/passes/images/
+      DEFAULT_ORG_NAME: Mobile Pass
+      PASS_CONVERTER_URL: http://pass-converter:3002
+    ports:
+      - "3001:3001"
+    networks:
+      - pass-generator-network
+    restart: unless-stopped
+    volumes:
+      - api_logs:/app/logs
+      - api_files:/app/files
+      - ./certificates/google/google-service-account.json:/app/certs/google-service-account.json:ro
+      - ./certificates/apple/wwdr.pem:/app/certs/wwdr.pem:ro
+      - ./certificates/apple:/app/certs/apple:ro
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+
   # Frontend - Next.js
   frontend:
     build:
       context: ../mobile-pass-frontend
+      dockerfile: Dockerfile
       args:
-        # API Configuration
-        - NEXT_PUBLIC_API_URL=https://wallet.itass.cloud/api
-        - NEXT_PUBLIC_API_TIMEOUT=30000
-        
-        # App Configuration
-        - NEXT_PUBLIC_APP_NAME=Pass Generator
-        - NEXT_PUBLIC_APP_VERSION=1.0.0
-        - NEXT_PUBLIC_APP_DESCRIPTION=Generate Apple Wallet passes easily
-        
-        # Production Configuration
-        - NODE_ENV=production
-        - NEXT_TELEMETRY_DISABLED=1
+        # API Configuration (baked into build for browser)
+        NEXT_PUBLIC_API_URL: https://wallet.itass.cloud/api
+        NEXT_PUBLIC_API_TIMEOUT: "30000"
+        # App Configuration (baked into build)
+        NEXT_PUBLIC_APP_NAME: Pass Generator
+        NEXT_PUBLIC_APP_VERSION: "1.0.0"
+        NEXT_PUBLIC_APP_DESCRIPTION: Generate Apple Wallet passes easily
+        # Build Configuration
+        NODE_ENV: production
+        NEXT_TELEMETRY_DISABLED: "1"
     container_name: pass-generator-frontend
     restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      # API Configuration (Server-side SSR only - internal Docker network)
+      API_URL: http://pass-generator-api:3001/api
+      # Runtime Configuration
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
     ports:
       - "3000:3000"
-    environment:
-      # API Configuration (Cliente - navegador del usuario)
-      - NEXT_PUBLIC_API_URL=https://wallet.itass.cloud/api
-      - NEXT_PUBLIC_API_TIMEOUT=30000
-      
-      # API Configuration (Servidor - SSR interno)
-      - API_URL=http://pass-generator-api:3001/api
-      
-      # App Configuration
-      - NEXT_PUBLIC_APP_NAME=Pass Generator
-      - NEXT_PUBLIC_APP_VERSION=1.0.0
-      - NEXT_PUBLIC_APP_DESCRIPTION=Generate Apple Wallet passes easily
-      
-      # Production Configuration
-      - NODE_ENV=production
-      - NEXT_TELEMETRY_DISABLED=1
     networks:
-      - backend-network
+      - pass-generator-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
 
-  # Nginx Reverse Proxy para Pass Generator
+  # Nginx Reverse Proxy
   nginx:
     image: nginx:alpine
     container_name: pass-generator-nginx
     restart: unless-stopped
+    depends_on:
+      frontend:
+        condition: service_healthy
+      api:
+        condition: service_healthy
     ports:
       - "443:443"
+      - "80:80"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - ./conf.d:/etc/nginx/conf.d:ro
       - ./certificates/api.itass.cloud/certificate.crt:/etc/ssl/itass/certificate.crt:ro
       - ./certificates/api.itass.cloud/private.key:/etc/ssl/itass/private.key:ro
-      - nginx-cache:/var/cache/nginx
+      - nginx_cache:/var/cache/nginx
+      - nginx_logs:/var/log/nginx
     networks:
-      - backend-network
-    depends_on:
-      - frontend
+      - pass-generator-network
     healthcheck:
-      test:
-        [
-          "CMD",
-          "wget",
-          "--no-verbose",
-          "--tries=1",
-          "--spider",
-          "--no-check-certificate",
-          "https://127.0.0.1:443/health",
-        ]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "--no-check-certificate", "https://127.0.0.1:443/health"]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 15s
 
 volumes:
-  nginx-cache:
+  # Preserve existing volumes with same names
+  sqlserver_data:
+    name: mobile-pass-backend_sqlserver_data
+    external: true
+  api_files:
+    name: mobile-pass-backend_files_data
+    external: true
+  api_logs:
+  nginx_cache:
+  nginx_logs:
 
 networks:
-  backend-network:
-    external: true
+  pass-generator-network:
     name: mobile-pass-backend_pass-generator-network
+    external: true
