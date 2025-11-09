@@ -69,7 +69,7 @@ deploy_all() {
     
     # Build custom services
     log_info "Building custom services..."
-    docker-compose build pass-converter api frontend
+    docker-compose build pass-converter pass-converter-huawei api frontend
     
     # Stop old containers
     log_info "Stopping old containers..."
@@ -90,7 +90,8 @@ deploy_all() {
     log_info "Services available at:"
     log_info "  - Frontend: https://wallet.itass.cloud"
     log_info "  - API: https://wallet.itass.cloud/api"
-    log_info "  - Pass Converter: http://localhost:3002"
+    log_info "  - Pass Converter (Google): http://localhost:3002"
+    log_info "  - Pass Converter (Huawei): http://localhost:3003"
 }
 
 # Update specific service
@@ -173,7 +174,8 @@ Commands:
 
 Services:
     - sqlserver         SQL Server database
-    - pass-converter    Pass converter service
+    - pass-converter    Pass converter service (Google Wallet)
+    - pass-converter-huawei  Pass converter service (Huawei Wallet)
     - api               Backend API
     - frontend          Next.js frontend
     - nginx             Nginx reverse proxy

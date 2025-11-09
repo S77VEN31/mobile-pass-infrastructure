@@ -31,6 +31,7 @@ The infrastructure manages the following services:
 |---------|---------------|------|-------------|
 | SQL Server | pass-generator-db | 1433 | Database |
 | Pass Converter | pass-converter | 3002 | Apple Wallet to Google Wallet converter |
+| Huawei Pass Converter | pass-converter-huawei | 3003 | Apple Wallet to Huawei Wallet converter |
 | Backend API | pass-generator-api | 3001 | Main API server |
 | Frontend | pass-generator-frontend | 3000 | Next.js application |
 | Nginx | pass-generator-nginx | 443, 80 | Reverse proxy & SSL termination |
@@ -121,7 +122,8 @@ The infrastructure manages the following services:
 - **Production Frontend:** https://wallet.itass.cloud
 - **Production API:** https://wallet.itass.cloud/api
 - **API Health Check:** https://wallet.itass.cloud/api/health
-- **Pass Converter:** http://localhost:3002 (internal only)
+- **Pass Converter (Google):** http://localhost:3002 (internal only)
+- **Pass Converter (Huawei):** http://localhost:3003 (internal only)
 
 ## 📝 Configuration
 
@@ -145,6 +147,14 @@ Main configuration is in `docker-compose.yml`. Key variables:
 - `GOOGLE_STORAGE_BUCKET`: (Optional) GCS bucket for images
 - `IMAGE_HOST_URL`: Public URL for images
 - `PASS_CONVERTER_URL`: Internal URL to pass-converter service
+
+**Huawei Wallet:**
+- `HUAWEI_APP_ID`: Huawei App ID for Wallet Kit API
+- `HUAWEI_APP_SECRET`: Huawei App Secret for Wallet Kit API
+- `HUAWEI_ISSUER_ID`: Huawei Wallet Issuer ID
+- `HUAWEI_PASS_CONVERTER_URL`: Internal URL to pass-converter-huawei service
+- `HUAWEI_PASS_SIGNING_KEY_PATH`: Path to private key for signing passes
+- `HUAWEI_PASS_SIGNING_CERT_PATH`: Path to certificate for signing passes
 
 **CORS:**
 - `CORS_ORIGIN`: Allowed origin for CORS
@@ -311,6 +321,7 @@ cd ../mobile-pass-infrastructure
 cd ../mobile-pass-backend && git pull && cd -
 cd ../mobile-pass-frontend && git pull && cd -
 cd ../pass-converter && git pull && cd -
+cd ../mobile-pass-converter-huawei && git pull && cd -
 
 # Redeploy
 ./deploy.sh deploy
@@ -320,7 +331,8 @@ cd ../pass-converter && git pull && cd -
 
 - **Frontend Repository:** `../mobile-pass-frontend`
 - **Backend Repository:** `../mobile-pass-backend`
-- **Pass Converter:** `../pass-converter`
+- **Pass Converter (Google):** `../pass-converter`
+- **Pass Converter (Huawei):** `../mobile-pass-converter-huawei`
 - **Nginx Configuration:** `NGINX-CONFIGURATION.md`
 - **Secrets Setup:** `secrets/README.md`
 

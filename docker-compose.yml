@@ -47,6 +47,32 @@ services:
       retries: 3
       start_period: 10s
 
+  # Huawei Wallet Pass Converter Service
+  pass-converter-huawei:
+    build:
+      context: ../mobile-pass-converter-huawei
+      dockerfile: Dockerfile
+    container_name: pass-converter-huawei
+    environment:
+      NODE_ENV: production
+      BIND_HOST: 0.0.0.0
+      BIND_PORT: 3003
+      HUAWEI_PASS_SIGNING_KEY_PATH: /app/certs/huawei/private-key.pem
+      HUAWEI_PASS_SIGNING_CERT_PATH: /app/certs/huawei/certificate.cer
+    ports:
+      - "3003:3003"
+    volumes:
+      - ./certificates/huawei:/app/certs/huawei:ro
+    networks:
+      - pass-generator-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3003/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
   # Backend API
   api:
     build:
@@ -56,6 +82,7 @@ services:
     depends_on:
       - sqlserver
       - pass-converter
+      - pass-converter-huawei
     environment:
       NODE_ENV: production
       PORT: 3001
@@ -80,6 +107,21 @@ services:
       IMAGE_HOST_URL: https://wallet.itass.cloud/api/passes/images/
       DEFAULT_ORG_NAME: Mobile Pass
       PASS_CONVERTER_URL: http://pass-converter:3002
+      # Huawei Wallet Configuration
+      HUAWEI_APP_ID: "115867183"
+      HUAWEI_APP_SECRET: "2597f776272dfee7b9fa603b7b40a06afba82320e45dd48146176f2c1580c786"
+      HUAWEI_ISSUER_ID: "hwpass.mobilepass"
+      HUAWEI_PASS_CONVERTER_URL: http://pass-converter-huawei:3003
+      # Apple Push Notifications (APNs) Configuration
+      # APNs Key Path: Path to the .p8 authentication key file
+      APNS_KEY_PATH: /app/certs/apple/AuthKey_49MK2KUUQ8.p8
+      # APNs Key ID: The Key ID from Apple Developer (found in the key name)
+      APNS_KEY_ID: "49MK2KUUQ8"
+      # APNs Team ID: Your Apple Developer Team ID (10 alphanumeric characters)
+      # Find it at: https://developer.apple.com/account/#/membership/
+      APNS_TEAM_ID: "S368T29A39"
+      # APNs Production: Set to "true" for production, "false" for development/sandbox
+      APNS_PRODUCTION: "false"
     ports:
       - "3001:3001"
     networks:
