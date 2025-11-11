@@ -121,7 +121,7 @@ services:
       # Find it at: https://developer.apple.com/account/#/membership/
       APNS_TEAM_ID: "S368T29A39"
       # APNs Production: Set to "true" for production, "false" for development/sandbox
-      APNS_PRODUCTION: "false"
+      APNS_PRODUCTION: "true"
     ports:
       - "3001:3001"
     networks:
