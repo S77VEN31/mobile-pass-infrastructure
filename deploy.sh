@@ -51,8 +51,15 @@ check_secrets() {
 # Build specific service
 build_service() {
     local service=$1
+    local no_cache=${2:-false}
     log_info "Building $service..."
-    docker-compose build --no-cache "$service"
+    if [ "$no_cache" = "true" ]; then
+        log_warning "Building without cache (slower but ensures clean build)"
+        docker-compose build --no-cache "$service"
+    else
+        log_info "Building with cache (faster, use --no-cache flag for clean build)"
+        DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 docker-compose build "$service"
+    fi
     log_success "$service built successfully"
 }
 
@@ -67,9 +74,9 @@ deploy_all() {
     log_info "Pulling latest base images..."
     docker-compose pull sqlserver nginx
     
-    # Build custom services
-    log_info "Building custom services..."
-    docker-compose build pass-converter pass-converter-huawei api frontend
+    # Build custom services with BuildKit for faster builds
+    log_info "Building custom services (using BuildKit cache)..."
+    DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 docker-compose build pass-converter pass-converter-huawei api frontend
     
     # Stop old containers
     log_info "Stopping old containers..."
@@ -99,8 +106,8 @@ update_service() {
     local service=$1
     log_info "Updating $service..."
     
-    # Build the service
-    docker-compose build "$service"
+    # Build the service with BuildKit cache
+    DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 docker-compose build "$service"
     
     # Recreate only that service
     docker-compose up -d --no-deps "$service"
@@ -163,7 +170,7 @@ Usage: ./deploy.sh [COMMAND] [OPTIONS]
 
 Commands:
     deploy              Deploy all services
-    build <service>     Build specific service
+    build <service> [--no-cache]  Build specific service (with cache by default)
     update <service>    Update and restart specific service
     restart             Restart all services
     stop                Stop all services
@@ -201,10 +208,14 @@ main() {
             ;;
         build)
             if [ -z "$service" ]; then
-                log_error "Service name required. Use: ./deploy.sh build <service>"
+                log_error "Service name required. Use: ./deploy.sh build <service> [--no-cache]"
                 exit 1
             fi
-            build_service "$service"
+            local no_cache=false
+            if [ "$2" = "--no-cache" ] || [ "$3" = "--no-cache" ]; then
+                no_cache=true
+            fi
+            build_service "$service" "$no_cache"
             ;;
         update)
             if [ -z "$service" ]; then
