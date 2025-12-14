@@ -1,6 +1,23 @@
 # Certificados SSL (no subir al repositorio)
 certificates/
 
+# Archivos de certificados y claves
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+*.json
+
+# Certificados específicos
+**/private.key
+**/certificate.crt
+
+# Permitir README en certificados
+!certificates/README.md
+!**/README.md
+
 # Logs de Nginx
 logs/
 *.log
