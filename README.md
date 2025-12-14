@@ -13,7 +13,7 @@ The main goal is to provide a production-ready, containerized environment that c
 - **Rate Limiting**: API endpoint protection with configurable rate limits for authentication and general API routes
 - **Health Checks**: Automated health monitoring for all services with Docker healthcheck configurations
 - **Security Headers**: Comprehensive security headers including HSTS, XSS protection, frame options, and content type protection
-- **Centralized Deployment**: Single deployment script (`deploy.sh`) for managing all services
+- **Centralized Deployment**: Docker Compose for managing all services
 - **Service Isolation**: Docker network isolation with dedicated network for inter-service communication
 - **Volume Management**: Persistent storage for application files, logs, and certificates
 - **Proxy Caching**: Nginx caching configuration for improved performance
@@ -25,7 +25,7 @@ The main goal is to provide a production-ready, containerized environment that c
 mobile-pass-infrastructure/
 ├── docker-compose.yml          # Main Docker Compose orchestration file
 ├── nginx.conf                   # Nginx main configuration (worker processes, logging, gzip, caching)
-├── deploy.sh                    # Deployment automation script
+├── .env                         # Environment variables (not tracked in git)
 ├── .gitignore                   # Git ignore rules (certificates, logs, env files)
 └── conf.d/                      # Nginx server configuration directory
     ├── pass-generator.conf      # Server blocks for frontend and API routing
@@ -39,7 +39,7 @@ mobile-pass-infrastructure/
 - **`docker-compose.yml`**: Defines all services (API, frontend, pass converters, nginx), their dependencies, environment variables, volumes, networks, and health checks
 - **`nginx.conf`**: Main Nginx configuration including worker processes, logging formats, gzip settings, rate limiting zones, and proxy cache configuration
 - **`conf.d/pass-generator.conf`**: Server blocks for `mobilepass.itass.cloud` (frontend) and `wallet.itass.cloud` (API), including SSL configuration and routing rules
-- **`deploy.sh`**: Bash script providing commands for deployment, building, updating, logging, and managing services
+- **`.env`**: Environment variables file for configuration (see Configuration section)
 - **`certificates/`**: Directory containing SSL certificates and wallet signing keys (excluded from git)
 
 ## Technologies Used
@@ -49,7 +49,6 @@ mobile-pass-infrastructure/
 - **Node.js**: Runtime for backend API and pass converter services
 - **Next.js**: React framework for the frontend application
 - **SQL Server**: External database (not containerized in this infrastructure)
-- **Bash**: Deployment automation scripting
 
 ## Installation
 
@@ -57,7 +56,6 @@ mobile-pass-infrastructure/
 
 - Docker Engine (version 20.10 or later)
 - Docker Compose (version 1.29 or later)
-- Bash shell
 - SSL certificates and wallet signing certificates (see Configuration section)
 
 ### Setup Steps
@@ -92,82 +90,67 @@ mobile-pass-infrastructure/
    - `certificates/api.itass.cloud/certificate.crt` - SSL certificate
    - `certificates/api.itass.cloud/private.key` - SSL private key
 
-5. **Configure environment variables** (optional):
+5. **Configure environment variables**:
    
-   Create a `.env` file or set environment variables for customization. See Configuration section for available variables.
-
-6. **Make deploy script executable**:
+   Create a `.env` file with your configuration. See Configuration section for available variables.
+   
    ```bash
-   chmod +x deploy.sh
+   cp .env.example .env  # If example exists, or create manually
+   nano .env             # Edit with your values
    ```
 
 ## Usage
 
 ### Full Deployment
 
-Deploy all services with a single command:
+Deploy all services:
 
 ```bash
-./deploy.sh deploy
+docker-compose up -d
 ```
 
 This will:
-- Check for required certificates
-- Pull latest base images (nginx)
 - Build custom services (pass-converter, pass-converter-huawei, api, frontend)
-- Stop old containers
 - Start all services
-- Display service status
+- Set up the network and volumes
 
-**Note**: The deployment script may reference services not present in docker-compose.yml (e.g., sqlserver). Only services defined in docker-compose.yml will be deployed.
+### Service Management
 
-### Individual Service Management
+**Build all services**:
+```bash
+docker-compose build
+```
 
 **Build a specific service**:
 ```bash
-./deploy.sh build <service-name> [--no-cache]
+docker-compose build <service-name>
+docker-compose build --no-cache <service-name>  # Force clean build
 ```
 
-Example:
+**Rebuild and restart a specific service**:
 ```bash
-./deploy.sh build api
-./deploy.sh build frontend --no-cache  # Force clean build
-```
-
-**Update a specific service**:
-```bash
-./deploy.sh update <service-name>
-```
-
-Example:
-```bash
-./deploy.sh update frontend
+docker-compose up -d --build --no-deps <service-name>
 ```
 
 **View logs**:
 ```bash
-./deploy.sh logs              # All services
-./deploy.sh logs api          # Specific service
+docker-compose logs -f              # All services
+docker-compose logs -f api          # Specific service
 ```
 
 **Check service status**:
 ```bash
-./deploy.sh status
+docker-compose ps
 ```
 
 **Restart all services**:
 ```bash
-./deploy.sh restart
+docker-compose restart
 ```
 
 **Stop all services**:
 ```bash
-./deploy.sh stop
-```
-
-**Backup volumes**:
-```bash
-./deploy.sh backup
+docker-compose down
 ```
 
 ### Available Services
@@ -177,24 +160,6 @@ Example:
 - `api` - Backend API service (port 3001)
 - `frontend` - Next.js frontend application (port 3000)
 - `nginx` - Reverse proxy (ports 80, 443)
-
-### Direct Docker Compose Usage
-
-You can also use Docker Compose directly:
-
-```bash
-# Start all services
-docker-compose up -d
-
-# Stop all services
-docker-compose down
-
-# View logs
-docker-compose logs -f
-
-# Rebuild and restart a service
-docker-compose up -d --build <service-name>
-```
 
 ## Configuration
 
@@ -399,14 +364,13 @@ All services expose health check endpoints that return HTTP 200 when healthy. Th
 - Certificates are stored in the `certificates/` directory (gitignored)
 - Certificates are mounted as read-only volumes into containers
 - Certificate paths are configurable via environment variables
-- The deployment script checks for required certificates and warns if missing
 
 ### Service Updates
 
 To update a service without affecting others:
 
 1. Make code changes in the respective service repository
-2. Use `./deploy.sh update <service-name>` to rebuild and restart only that service
+2. Run `docker-compose up -d --build --no-deps <service-name>` to rebuild and restart only that service
 3. The `--no-deps` flag ensures dependencies are not rebuilt
 
 ### Network and Volume Prerequisites
@@ -426,14 +390,12 @@ docker volume create mobile-pass-backend_files_data
 - **External Dependencies**: Requires external SQL Server database that is not managed by this infrastructure
 - **Certificate Management**: Certificates must be manually placed in the `certificates/` directory; no automatic certificate provisioning or renewal
 - **Network and Volumes**: Docker network and volumes must be created externally before deployment
-- **Environment Variables**: No `.env` file support by default; environment variables must be set in shell or docker-compose override files
 - **Single Host Deployment**: Designed for single-host deployment; multi-host deployment would require additional orchestration
 - **No Load Balancing**: Nginx acts as reverse proxy but doesn't load balance multiple instances of services
 - **Certificate Paths**: Some certificate paths are hardcoded in docker-compose.yml and may need adjustment for different deployment scenarios
 
 ## Future Improvements
 
-- **Environment File Support**: Add `.env` file parsing in docker-compose.yml for easier configuration management
 - **Certificate Auto-Renewal**: Integrate Let's Encrypt or similar for automatic SSL certificate renewal
 - **Monitoring Integration**: Add Prometheus, Grafana, or similar monitoring solutions
 - **CI/CD Pipeline**: Integrate with CI/CD systems for automated builds and deployments
